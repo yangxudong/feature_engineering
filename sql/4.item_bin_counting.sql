@@ -1,0 +1,182 @@
+CREATE TABLE IF NOT EXISTS ecommerce_item_bin_count
+(
+    field_idx   BIGINT,
+    event_type  STRING,
+    pos_ntile_1d BIGINT,
+    neg_ntile_1d BIGINT,
+    pos_ntile_3d BIGINT,
+    neg_ntile_3d BIGINT,
+    pos_ntile_7d BIGINT,
+    neg_ntile_7d BIGINT,
+    pos_ntile_30d BIGINT,
+    neg_ntile_30d BIGINT,
+    pos_gauss_rank_1d DOUBLE,
+    neg_gauss_rank_1d DOUBLE,
+    pos_gauss_rank_3d DOUBLE,
+    neg_gauss_rank_3d DOUBLE,
+    pos_gauss_rank_7d DOUBLE,
+    neg_gauss_rank_7d DOUBLE,
+    pos_gauss_rank_30d DOUBLE,
+    neg_gauss_rank_30d DOUBLE,
+    woe_1d DOUBLE,
+    woe_3d DOUBLE,
+    woe_7d DOUBLE,
+    woe_30d DOUBLE,
+    info_value_1d DOUBLE,
+    info_value_3d DOUBLE,
+    info_value_7d DOUBLE,
+    info_value_30d DOUBLE,
+    odds_ratio_1d DOUBLE,
+    odds_ratio_3d DOUBLE,
+    odds_ratio_7d DOUBLE,
+    odds_ratio_30d DOUBLE,
+    chi_square_1d DOUBLE,
+    chi_square_3d DOUBLE,
+    chi_square_7d DOUBLE,
+    chi_square_30d DOUBLE,
+    gini_1d DOUBLE,
+    gini_3d DOUBLE,
+    gini_7d DOUBLE,
+    gini_30d DOUBLE
+)
+COMMENT 'item categorical feature bin counting'
+PARTITIONED BY (field STRING COMMENT 'field name', dt STRING COMMENT 'yyyymmdd')
+;
+
+set odps.sql.reducer.memory=4096;
+INSERT OVERWRITE TABLE ecommerce_item_bin_count PARTITION(field, dt)
+SELECT field_idx, event_type,
+    pos_ntile_1d, neg_ntile_1d, pos_ntile_3d, neg_ntile_3d, pos_ntile_7d, neg_ntile_7d, pos_ntile_30d, neg_ntile_30d,
+    GAUSS_RANK(pos_rank_1d) pos_gauss_rank_1d,
+    GAUSS_RANK(neg_rank_1d) neg_gauss_rank_1d,
+    GAUSS_RANK(pos_rank_3d) pos_gauss_rank_3d,
+    GAUSS_RANK(neg_rank_3d) neg_gauss_rank_3d,
+    GAUSS_RANK(pos_rank_7d) pos_gauss_rank_7d,
+    GAUSS_RANK(neg_rank_7d) neg_gauss_rank_7d,
+    GAUSS_RANK(pos_rank_30d) pos_gauss_rank_30d,
+    GAUSS_RANK(neg_rank_30d) neg_gauss_rank_30d,
+    IF(total_cnt_1d=0, 0, LN(1e-6 + pos_ratio_1d/(1e-6+neg_ratio_1d))) AS woe_1d,
+    IF(total_cnt_3d=0, 0, LN(1e-6 + pos_ratio_3d/(1e-6+neg_ratio_3d))) AS woe_3d,
+    IF(total_cnt_7d=0, 0, LN(1e-6 + pos_ratio_7d/(1e-6+neg_ratio_7d))) AS woe_7d,
+    IF(total_cnt_30d=0, 0, LN(1e-6 + pos_ratio_30d/(1e-6+neg_ratio_30d))) AS woe_30d,
+    IF(total_cnt_1d=0, 0, (pos_ratio_1d-neg_ratio_1d)*LN(1e-6 + pos_ratio_1d/(1e-6+neg_ratio_1d))) AS info_value_1d,
+    IF(total_cnt_3d=0, 0, (pos_ratio_3d-neg_ratio_3d)*LN(1e-6 + pos_ratio_3d/(1e-6+neg_ratio_3d))) AS info_value_3d,
+    IF(total_cnt_7d=0, 0, (pos_ratio_7d-neg_ratio_7d)*LN(1e-6 + pos_ratio_7d/(1e-6+neg_ratio_7d))) AS info_value_7d,
+    IF(total_cnt_30d=0, 0, (pos_ratio_30d-neg_ratio_30d)*LN(1e-6 + pos_ratio_30d/(1e-6+neg_ratio_30d))) AS info_value_30d,
+    odds_1d, odds_3d, odds_7d, odds_30d, chi_square_1d, chi_square_3d, chi_square_7d, chi_square_30d,
+    match_prop_1d*2*precision_1d*(1-precision_1d)+(1-match_prop_1d)*2*unmatch_precision_1d*(1-unmatch_precision_1d) AS gini_1d,
+    match_prop_3d*2*precision_3d*(1-precision_3d)+(1-match_prop_3d)*2*unmatch_precision_3d*(1-unmatch_precision_3d) AS gini_3d,
+    match_prop_7d*2*precision_7d*(1-precision_7d)+(1-match_prop_7d)*2*unmatch_precision_7d*(1-unmatch_precision_7d) AS gini_7d,
+    match_prop_30d*2*precision_30d*(1-precision_30d)+(1-match_prop_30d)*2*unmatch_precision_30d*(1-unmatch_precision_30d) AS gini_30d,
+    field, dt
+FROM (
+  SELECT dt, field, field_idx, event_type, total_cnt_1d, total_cnt_3d, total_cnt_7d, total_cnt_30d,
+    NTILE(10) OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_1d DESC)-1 AS pos_ntile_1d,
+    NTILE(10) OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_1d DESC)-1 AS neg_ntile_1d,
+    NTILE(10) OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_3d DESC)-1 AS pos_ntile_3d,
+    NTILE(10) OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_3d DESC)-1 AS neg_ntile_3d,
+    NTILE(10) OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_7d DESC)-1 AS pos_ntile_7d,
+    NTILE(10) OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_7d DESC)-1 AS neg_ntile_7d,
+    NTILE(10) OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_30d DESC)-1 AS pos_ntile_30d,
+    NTILE(10) OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_30d DESC)-1 AS neg_ntile_30d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_1d DESC) AS pos_rank_1d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_1d DESC) AS neg_rank_1d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_3d DESC) AS pos_rank_3d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_3d DESC) AS neg_rank_3d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_7d DESC) AS pos_rank_7d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_7d DESC) AS neg_rank_7d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_30d DESC) AS pos_rank_30d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_30d DESC) AS neg_rank_30d,
+    if(global_pos_cnt_1d=0, 0, pos_cnt_1d/global_pos_cnt_1d) AS pos_ratio_1d,
+    if(global_neg_cnt_1d=0, 0, neg_cnt_1d/global_neg_cnt_1d) AS neg_ratio_1d,
+    if(global_pos_cnt_3d=0, 0, pos_cnt_3d/global_pos_cnt_3d) AS pos_ratio_3d,
+    if(global_neg_cnt_3d=0, 0, neg_cnt_3d/global_neg_cnt_3d) AS neg_ratio_3d,
+    if(global_pos_cnt_7d=0, 0, pos_cnt_7d/global_pos_cnt_7d) AS pos_ratio_7d,
+    if(global_neg_cnt_7d=0, 0, neg_cnt_7d/global_neg_cnt_7d) AS neg_ratio_7d,
+    if(global_pos_cnt_30d=0, 0, pos_cnt_30d/global_pos_cnt_30d) AS pos_ratio_30d,
+    if(global_neg_cnt_30d=0, 0, neg_cnt_30d/global_neg_cnt_30d) AS neg_ratio_30d,
+    IF(total_cnt_1d=0, 0, LN(1e-6 + pos_cnt_1d) - LN(1e-6 + neg_cnt_1d)) AS odds_1d,
+    IF(total_cnt_3d=0, 0, LN(1e-6 + pos_cnt_3d) - LN(1e-6 + neg_cnt_3d)) AS odds_3d,
+    IF(total_cnt_7d=0, 0, LN(1e-6 + pos_cnt_7d) - LN(1e-6 + neg_cnt_7d)) AS odds_7d,
+    IF(total_cnt_30d=0, 0, LN(1e-6 + pos_cnt_30d) - LN(1e-6 + neg_cnt_30d)) AS odds_30d,
+    IF(total_cnt_1d=0, 0, 2*LN(1e-8+ABS(pos_cnt_1d*(global_neg_cnt_1d-neg_cnt_1d)-neg_cnt_1d*(global_pos_cnt_1d-pos_cnt_1d)))-LN(total_cnt_1d)-LN(global_pos_cnt_1d+global_neg_cnt_1d-total_cnt_1d)) AS chi_square_1d,
+    IF(total_cnt_3d=0, 0, 2*LN(1e-8+ABS(pos_cnt_3d*(global_neg_cnt_3d-neg_cnt_3d)-neg_cnt_3d*(global_pos_cnt_3d-pos_cnt_3d)))-LN(total_cnt_3d)-LN(global_pos_cnt_3d+global_neg_cnt_3d-total_cnt_3d)) AS chi_square_3d,
+    IF(total_cnt_7d=0, 0, 2*LN(1e-8+ABS(pos_cnt_7d*(global_neg_cnt_7d-neg_cnt_7d)-neg_cnt_7d*(global_pos_cnt_7d-pos_cnt_7d)))-LN(total_cnt_7d)-LN(global_pos_cnt_7d+global_neg_cnt_7d-total_cnt_7d)) AS chi_square_7d,
+    IF(total_cnt_30d=0, 0, 2*LN(1e-8+ABS(pos_cnt_30d*(global_neg_cnt_30d-neg_cnt_30d)-neg_cnt_30d*(global_pos_cnt_30d-pos_cnt_30d)))-LN(total_cnt_30d)-LN(global_pos_cnt_30d+global_neg_cnt_30d-total_cnt_30d)) AS chi_square_30d,
+    IF(total_cnt_1d=0, 0, pos_cnt_1d/total_cnt_1d) as precision_1d,
+    IF(total_cnt_3d=0, 0, pos_cnt_3d/total_cnt_3d) as precision_3d,
+    IF(total_cnt_7d=0, 0, pos_cnt_7d/total_cnt_7d) as precision_7d,
+    IF(total_cnt_30d=0, 0, pos_cnt_30d/total_cnt_30d) as precision_30d,
+    (global_pos_cnt_1d-pos_cnt_1d)/(global_pos_cnt_1d+global_neg_cnt_1d-total_cnt_1d) AS unmatch_precision_1d,
+    (global_pos_cnt_3d-pos_cnt_3d)/(global_pos_cnt_3d+global_neg_cnt_3d-total_cnt_3d) AS unmatch_precision_3d,
+    (global_pos_cnt_7d-pos_cnt_7d)/(global_pos_cnt_7d+global_neg_cnt_7d-total_cnt_7d) AS unmatch_precision_7d,
+    (global_pos_cnt_30d-pos_cnt_30d)/(global_pos_cnt_30d+global_neg_cnt_30d-total_cnt_30d) AS unmatch_precision_30d,
+    total_cnt_1d/(global_pos_cnt_1d+global_neg_cnt_1d) match_prop_1d,
+    total_cnt_3d/(global_pos_cnt_3d+global_neg_cnt_3d) match_prop_3d,
+    total_cnt_7d/(global_pos_cnt_7d+global_neg_cnt_7d) match_prop_7d,
+    total_cnt_30d/(global_pos_cnt_30d+global_neg_cnt_30d) match_prop_30d
+  FROM ecommerce_item_cumulate_count
+  where dt>='20191031' and field!='product'
+);
+
+-------------------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ecommerce_item_count_feature
+(
+    product_idx   BIGINT,
+    event_type  STRING,
+    pos_ntile_1d BIGINT,
+    neg_ntile_1d BIGINT,
+    pos_ntile_3d BIGINT,
+    neg_ntile_3d BIGINT,
+    pos_ntile_7d BIGINT,
+    neg_ntile_7d BIGINT,
+    pos_ntile_30d BIGINT,
+    neg_ntile_30d BIGINT,
+    pos_gauss_rank_1d DOUBLE,
+    neg_gauss_rank_1d DOUBLE,
+    pos_gauss_rank_3d DOUBLE,
+    neg_gauss_rank_3d DOUBLE,
+    pos_gauss_rank_7d DOUBLE,
+    neg_gauss_rank_7d DOUBLE,
+    pos_gauss_rank_30d DOUBLE,
+    neg_gauss_rank_30d DOUBLE
+)
+COMMENT 'item count feature'
+PARTITIONED BY (dt STRING COMMENT 'yyyymmdd')
+;
+
+set odps.sql.reducer.memory=4096;
+INSERT OVERWRITE TABLE ecommerce_item_count_feature PARTITION(dt)
+SELECT field_idx, event_type,
+    pos_ntile_1d, neg_ntile_1d, pos_ntile_3d, neg_ntile_3d, pos_ntile_7d, neg_ntile_7d, pos_ntile_30d, neg_ntile_30d,
+    GAUSS_RANK(pos_rank_1d) pos_gauss_rank_1d,
+    GAUSS_RANK(neg_rank_1d) neg_gauss_rank_1d,
+    GAUSS_RANK(pos_rank_3d) pos_gauss_rank_3d,
+    GAUSS_RANK(neg_rank_3d) neg_gauss_rank_3d,
+    GAUSS_RANK(pos_rank_7d) pos_gauss_rank_7d,
+    GAUSS_RANK(neg_rank_7d) neg_gauss_rank_7d,
+    GAUSS_RANK(pos_rank_30d) pos_gauss_rank_30d,
+    GAUSS_RANK(neg_rank_30d) neg_gauss_rank_30d,
+    dt
+FROM (
+  SELECT dt, field, field_idx, event_type, total_cnt_1d, total_cnt_3d, total_cnt_7d, total_cnt_30d,
+    NTILE(100) OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_1d DESC)-1 AS pos_ntile_1d,
+    NTILE(100) OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_1d DESC)-1 AS neg_ntile_1d,
+    NTILE(100) OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_3d DESC)-1 AS pos_ntile_3d,
+    NTILE(100) OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_3d DESC)-1 AS neg_ntile_3d,
+    NTILE(100) OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_7d DESC)-1 AS pos_ntile_7d,
+    NTILE(100) OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_7d DESC)-1 AS neg_ntile_7d,
+    NTILE(100) OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_30d DESC)-1 AS pos_ntile_30d,
+    NTILE(100) OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_30d DESC)-1 AS neg_ntile_30d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_1d DESC) AS pos_rank_1d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_1d DESC) AS neg_rank_1d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_3d DESC) AS pos_rank_3d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_3d DESC) AS neg_rank_3d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_7d DESC) AS pos_rank_7d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_7d DESC) AS neg_rank_7d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY pos_cnt_30d DESC) AS pos_rank_30d,
+    PERCENT_RANK() OVER(PARTITION BY dt, field, event_type ORDER BY neg_cnt_30d DESC) AS neg_rank_30d
+  FROM ecommerce_item_cumulate_count
+  where dt>='20191031' and field='product'
+) A
+;
