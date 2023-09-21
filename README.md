@@ -1,5 +1,3 @@
-> Daily增量跑的脚本可以参考另一个业务场景的SQL：shihuo 目录。
-
 # 手把手教你做推荐算法的特征工程
 
 [查看原文](https://zhuanlan.zhihu.com/p/524575369)
